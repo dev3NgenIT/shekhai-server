@@ -34,7 +34,7 @@ app.use(compression());
 const allowedOrigins = [
   "http://localhost:5173",
   "https://shekhai-dashboard.vercel.app",
-  "https://shekhai-server.up.railway.app",
+  "https://shekhai-server-production.up.railway.app/",
 ];
 
 const corsOptions = {
