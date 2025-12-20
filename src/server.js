@@ -29,12 +29,12 @@ const app = express();
 app.use(compression());
 
 // ---------------------------
-// CORS Configuration
+// CORS Configuration - Apply globally first
 // ---------------------------
 const allowedOrigins = [
   "http://localhost:5173",
   "https://shekhai-dashboard.vercel.app",
-  "https://shekhai-server-production.up.railway.app/",
+  "https://shekhai-server-production.up.railway.app",
 ];
 
 const corsOptions = {
@@ -58,9 +58,14 @@ const corsOptions = {
   ],
   credentials: true,
   optionsSuccessStatus: 200,
+  maxAge: 86400, // 24 hours
 };
 
+// Apply CORS globally to all routes
 app.use(cors(corsOptions));
+
+// Handle preflight requests globally
+app.options("*", cors(corsOptions));
 
 // ---------------------------
 // Body parsing with increased limits for file uploads
@@ -78,23 +83,23 @@ app.use(
 );
 
 // ---------------------------
-// Helmet + CSP Configuration
+// Helmet Configuration (slightly relaxed for compatibility)
 // ---------------------------
 app.use(
   helmet({
     contentSecurityPolicy: {
-      useDefaults: true,
       directives: {
         defaultSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:", ...allowedOrigins],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
         connectSrc: ["'self'", ...allowedOrigins],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         objectSrc: ["'none'"],
       },
     },
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false, // Relaxed for file uploads
   })
 );
 
@@ -103,18 +108,29 @@ app.use(
 // ---------------------------
 app.use((req, res, next) => {
   res.removeHeader("X-Powered-By");
-  res.set({
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "X-XSS-Protection": "1; mode=block",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  });
+  const origin = req.headers.origin;
+  
+  // Set CORS headers dynamically
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  
   next();
 });
 
 // ---------------------------
-// Static Files with CORS Headers
+// Create upload directories
 // ---------------------------
 const uploadsDir = path.join(process.cwd(), "uploads");
 const communityUploadsDir = path.join(uploadsDir, "community");
@@ -127,40 +143,20 @@ if (!fs.existsSync(communityUploadsDir)) {
   fs.mkdirSync(communityUploadsDir, { recursive: true });
 }
 
-// Static files configuration
-const staticOptions = {
-  setHeaders: (res, filePath) => {
-    // Allow all allowed origins for static files
-    const requestOrigin = req.headers.origin;
-    if (allowedOrigins.includes(requestOrigin)) {
-      res.setHeader("Access-Control-Allow-Origin", requestOrigin);
-    }
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization"
-    );
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  },
-};
-
-// Apply static middleware to uploads directory
+// ---------------------------
+// Static Files with proper CORS headers
+// ---------------------------
 app.use("/uploads", (req, res, next) => {
-  express.static(uploadsDir, staticOptions)(req, res, next);
-});
-
-// Handle OPTIONS for static files
-app.options("/uploads/*", (req, res) => {
-  const requestOrigin = req.headers.origin;
-  if (allowedOrigins.includes(requestOrigin)) {
-    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+  // Set CORS headers for static files
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Max-Age", "86400");
-  res.status(200).end();
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  
+  // Serve static files
+  express.static(uploadsDir)(req, res, next);
 });
 
 // ---------------------------
@@ -172,6 +168,8 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
+    nodeVersion: process.version,
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -217,6 +215,7 @@ app.get("/", (req, res) =>
     version: "1.0.0",
     documentation: "/api-docs",
     health: "/health",
+    environment: process.env.NODE_ENV || "development",
   })
 );
 
@@ -226,7 +225,7 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/courses", courseRoutes);
 app.use("/api/v1/lessons", lessonRoutes);
 app.use("/api/v1/payments", paymentRoutes);
-app.use("/api/v1/uploads", uploadRoutes);
+app.use("/api/v1/uploads", uploadsRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/community", communityRoutes);
@@ -277,4 +276,5 @@ const server = app.listen(PORT, () => {
   console.log(`🔗 Community uploads: ${communityUploadsDir}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`❤️  Health check: http://localhost:${PORT}/health`);
+  console.log(`✅ CORS enabled for origins: ${allowedOrigins.join(", ")}`);
 });
