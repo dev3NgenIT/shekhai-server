@@ -219,13 +219,13 @@ app.get("/", (req, res) =>
   })
 );
 
-// API Routes
+// API Routes - FIXED: Using the correct variable name 'uploadRoutes' (not 'uploadsRoutes')
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/courses", courseRoutes);
 app.use("/api/v1/lessons", lessonRoutes);
 app.use("/api/v1/payments", paymentRoutes);
-app.use("/api/v1/uploads", uploadsRoutes);
+app.use("/api/v1/uploads", uploadRoutes); // FIXED THIS LINE
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/community", communityRoutes);
