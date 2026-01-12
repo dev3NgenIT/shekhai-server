@@ -20,6 +20,7 @@ const paymentRoutes = require("./routes/payments");
 const uploadRoutes = require("./routes/uploads");
 const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
+const quizRoutes = require("./routes/quizRoutes"); // ADDED: Quiz Routes
 
 const app = express();
 
@@ -48,7 +49,7 @@ const corsOptions = {
       callback(new Error("Not allowed by CORS"));
     }
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], // ADDED: PATCH method
   allowedHeaders: [
     "Content-Type",
     "Authorization",
@@ -115,7 +116,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH"); // ADDED: PATCH
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
@@ -179,7 +180,7 @@ app.get("/health", (req, res) => {
 connectDB();
 
 // ---------------------------
-// API Documentation endpoint
+// API Documentation endpoint - UPDATED with quiz endpoints
 // ---------------------------
 app.get("/api-docs", (req, res) => {
   res.json({
@@ -194,6 +195,7 @@ app.get("/api-docs", (req, res) => {
       admin: "/api/v1/admin",
       categories: "/api/v1/categories",
       community: "/api/v1/community",
+      quizzes: "/api/v1/quizzes", // ADDED: Quiz endpoints
     },
     community_endpoints: {
       "GET /questions": "Get all questions",
@@ -201,6 +203,17 @@ app.get("/api-docs", (req, res) => {
       "POST /questions": "Create new question (with images)",
       "POST /questions/:id/answers": "Add answer to question (with images)",
       "GET /stats": "Get community statistics",
+    },
+    quiz_endpoints: { // ADDED: Quiz endpoints documentation
+      "GET /quizzes": "Get all quizzes (with filters)",
+      "POST /quizzes": "Create new quiz (max 30 questions)",
+      "GET /quizzes/:id": "Get single quiz",
+      "PUT /quizzes/:id": "Update quiz",
+      "DELETE /quizzes/:id": "Delete quiz",
+      "PATCH /quizzes/:id/toggle-status": "Toggle quiz active status",
+      "GET /quizzes/:id/analytics": "Get quiz analytics",
+      "GET /instructors/:instructorId/quizzes": "Get instructor's quizzes",
+      "GET /courses/:courseId/quizzes": "Get quizzes by course",
     },
   });
 });
@@ -216,19 +229,29 @@ app.get("/", (req, res) =>
     documentation: "/api-docs",
     health: "/health",
     environment: process.env.NODE_ENV || "development",
+    features: {
+      authentication: "✅",
+      course_management: "✅",
+      lesson_management: "✅",
+      payment_processing: "✅",
+      file_uploads: "✅",
+      community_forum: "✅",
+      quiz_system: "✅", // ADDED: Quiz system feature
+    }
   })
 );
 
-// API Routes - FIXED: Using the correct variable name 'uploadRoutes' (not 'uploadsRoutes')
+// API Routes
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/courses", courseRoutes);
 app.use("/api/v1/lessons", lessonRoutes);
 app.use("/api/v1/payments", paymentRoutes);
-app.use("/api/v1/uploads", uploadRoutes); // FIXED THIS LINE
+app.use("/api/v1/uploads", uploadRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/community", communityRoutes);
+app.use("/api/v1/quizzes", quizRoutes); // ADDED: Quiz routes
 
 // ---------------------------
 // 404 Handler
@@ -277,4 +300,5 @@ const server = app.listen(PORT, () => {
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`❤️  Health check: http://localhost:${PORT}/health`);
   console.log(`✅ CORS enabled for origins: ${allowedOrigins.join(", ")}`);
+  console.log(`🎯 Quiz System: Enabled (max 30 questions per quiz)`); // ADDED: Quiz system notification
 });
