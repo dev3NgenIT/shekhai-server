@@ -1,145 +1,127 @@
-// models/Quiz.js
-const mongoose = require('mongoose');
-
-const optionSchema = new mongoose.Schema({
-  text: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  isCorrect: {
-    type: Boolean,
-    default: false
-  }
-});
+const mongoose = require("mongoose");
 
 const questionSchema = new mongoose.Schema({
-  text: {
+  question: {
     type: String,
-    required: true,
-    trim: true
+    required: [true, "Question text is required"],
+    trim: true,
   },
   type: {
     type: String,
-    enum: ['multiple-choice', 'true-false', 'short-answer', 'essay'],
-    default: 'multiple-choice'
+    enum: ["single-choice", "multiple-choice", "true-false", "short-answer"],
+    required: [true, "Question type is required"],
+  },
+  options: [
+    {
+      text: {
+        type: String,
+        required: function () {
+          return (
+            this.type === "single-choice" || this.type === "multiple-choice"
+          );
+        },
+      },
+      isCorrect: {
+        type: Boolean,
+        default: false,
+      },
+    },
+  ],
+  correctAnswer: {
+    type: mongoose.Schema.Types.Mixed,
+    required: function () {
+      return this.type !== "multiple-choice"; // For multiple-choice, correct answers are in options
+    },
   },
   points: {
     type: Number,
-    required: true,
-    min: 1,
-    default: 1
-  },
-  options: [optionSchema],
-  correctAnswer: {
-    type: String,
-    trim: true
+    default: 1,
+    min: [1, "Points must be at least 1"],
   },
   explanation: {
     type: String,
-    trim: true
+    trim: true,
   },
-  order: {
-    type: Number,
-    default: 0
+});
+
+const quizSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: [true, "Quiz title is required"],
+      trim: true,
+      maxlength: [200, "Title cannot exceed 200 characters"],
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Description cannot exceed 1000 characters"],
+    },
+    courseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Course",
+      required: [true, "Course ID is required"],
+    },
+    moduleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Module", // If you have a separate Module model
+    },
+    moduleTitle: {
+      type: String,
+      trim: true,
+    },
+    duration: {
+      type: Number, // in minutes
+      default: 30,
+      min: [1, "Duration must be at least 1 minute"],
+      max: [300, "Duration cannot exceed 300 minutes"],
+    },
+    passingScore: {
+      type: Number, // percentage
+      default: 70,
+      min: [0, "Passing score cannot be negative"],
+      max: [100, "Passing score cannot exceed 100%"],
+    },
+    maxAttempts: {
+      type: Number,
+      default: 1,
+      min: [1, "Maximum attempts must be at least 1"],
+    },
+    instructions: {
+      type: String,
+      trim: true,
+    },
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    availableFrom: {
+      type: Date,
+      required: [true, "Start date is required"],
+    },
+    availableUntil: {
+      type: Date,
+    },
+    scheduleType: {
+      type: String,
+      enum: ["immediate", "scheduled"],
+      default: "immediate",
+    },
+    questions: [questionSchema],
+    isPublished: {
+      type: Boolean,
+      default: false,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  {
+    timestamps: true,
   }
-});
+);
 
-const quizSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    trim: true
-  },
-  course: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Course',
-    required: true
-  },
-  module: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Module',
-    default: null
-  },
-  instructor: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  duration: {
-    type: Number,
-    required: true,
-    min: 1,
-    default: 60
-  },
-  passingScore: {
-    type: Number,
-    required: true,
-    min: 0,
-    max: 100,
-    default: 70
-  },
-  maxAttempts: {
-    type: Number,
-    required: true,
-    min: 1,
-    default: 1
-  },
-  isActive: {
-    type: Boolean,
-    default: false
-  },
-  shuffleQuestions: {
-    type: Boolean,
-    default: false
-  },
-  showResults: {
-    type: Boolean,
-    default: true
-  },
-  scheduledStart: {
-    type: Date,
-    default: null
-  },
-  scheduledEnd: {
-    type: Date,
-    default: null
-  },
-  questions: [questionSchema],
-  totalQuestions: {
-    type: Number,
-    default: 0
-  },
-  totalPoints: {
-    type: Number,
-    default: 0
-  },
-  averageScore: {
-    type: Number,
-    default: 0
-  },
-  totalAttempts: {
-    type: Number,
-    default: 0
-  },
-  enrolledStudents: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }]
-}, {
-  timestamps: true
-});
-
-// Calculate total questions and points before saving
-quizSchema.pre('save', function(next) {
-  this.totalQuestions = this.questions.length;
-  this.totalPoints = this.questions.reduce((sum, question) => sum + question.points, 0);
-  next();
-});
-
-const Quiz = mongoose.model('Quiz', quizSchema);
-module.exports = Quiz;
+module.exports = mongoose.model("Quiz", quizSchema);

@@ -1,43 +1,30 @@
-// routes/quizRoutes.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const {
-  createQuiz,
-  getQuizzes,
-  getQuiz,
-  updateQuiz,
-  deleteQuiz,
-  toggleQuizStatus,
-  getInstructorQuizzes,
-  getQuizzesByCourse
-} = require('../controllers/quizController');
-const { auth, permit } = require('../middlewares/auth');
+const quizController = require("../controllers/quizController");
+const quizAttemptController = require("../controllers/quizAttemptController");
 
-// All routes are protected
-router.use(auth);
+// All routes are public (no authentication required)
 
-// Get all quizzes (all authenticated users can view, but filtered by role)
-router.get('/', getQuizzes);
+// Quiz management routes
+router.post("/", quizController.createQuiz);
+router.get("/", quizController.getQuizzes);
+router.get("/:id", quizController.getQuiz);
+router.put("/:id", quizController.updateQuiz);
+router.delete("/:id", quizController.deleteQuiz);
+router.patch("/:id/publish", quizController.publishQuiz);
+router.post("/:id/questions", quizController.addQuestion);
+router.get("/:id/analytics", quizController.getQuizAnalytics);
 
-// Get instructor's quizzes
-router.get('/instructors/:instructorId/quizzes', permit('instructor', 'admin'), getInstructorQuizzes);
+// Course & module specific routes
+router.get("/course/:courseId", quizController.getCourseQuizzes);
+router.get("/module/:moduleId", quizController.getModuleQuizzes);
+router.get("/upcoming", quizController.getUpcomingQuizzes);
+router.get("/calendar/:year/:month", quizController.getQuizCalendar);
 
-// Get quizzes by course
-router.get('/courses/:courseId/quizzes', getQuizzesByCourse);
-
-// Get single quiz
-router.get('/:id', getQuiz);
-
-// Create quiz (instructor/admin only)
-router.post('/', permit('instructor', 'admin'), createQuiz);
-
-// Update quiz (instructor/admin only)
-router.put('/:id', permit('instructor', 'admin'), updateQuiz);
-
-// Delete quiz (instructor/admin only)
-router.delete('/:id', permit('instructor', 'admin'), deleteQuiz);
-
-// Toggle quiz status (instructor/admin only)
-router.patch('/:id/toggle-status', permit('instructor', 'admin'), toggleQuizStatus);
+// Quiz attempts routes
+router.post("/:id/attempt", quizAttemptController.startQuizAttempt);
+router.post("/:id/submit", quizAttemptController.submitQuizAttempt);
+router.get("/attempts/my-attempts", quizAttemptController.getUserQuizAttempts);
+router.get("/attempts/:id", quizAttemptController.getQuizAttempt);
 
 module.exports = router;
