@@ -21,7 +21,7 @@ const uploadRoutes = require("./routes/uploads");
 const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
 const quizRoutes = require("./routes/quizRoutes");
-const announcementRoutes = require("./routes/announcements"); // Add this import
+const announcementRoutes = require("./routes/announcements");
 
 const app = express();
 
@@ -212,7 +212,7 @@ app.get("/health", (req, res) => {
     memory: process.memoryUsage(),
     nodeVersion: process.version,
     environment: process.env.NODE_ENV || "development",
-    database: "connected", // You might want to add DB connection check
+    database: "connected",
     features: {
       authentication: true,
       course_management: true,
@@ -223,11 +223,17 @@ app.get("/health", (req, res) => {
       quiz_system: true,
       announcements: true,
     },
+    community_features: {
+      questions: "✅ Create, read, search questions",
+      answers: "✅ Post answers with attachments",
+      voting: "✅ Like answers",
+      solution: "✅ Mark answers as accepted",
+      search: "✅ Full-text search",
+      statistics: "✅ Community stats",
+      file_uploads: "✅ Images, PDF, Word docs (5MB max)",
+      pagination: "✅ With filters and sorting",
+    }
   };
-
-  // You can add database connection check here
-  // const dbStatus = mongoose.connection.readyState;
-  // healthcheck.database = dbStatus === 1 ? "connected" : "disconnected";
 
   res.status(200).json(healthcheck);
 });
@@ -261,6 +267,54 @@ app.get("/api-docs", (req, res) => {
       announcements: "/api/v1/announcements",
     },
     features: {
+      community_forum: {
+        description: "Community Forum System (No Authentication Required)",
+        endpoints: [
+          "GET    /community/questions                 - Get all questions (with filters)",
+          "POST   /community/questions                 - Create new question",
+          "GET    /community/questions/:id             - Get single question with answers",
+          "POST   /community/questions/:id/answers     - Add answer to question",
+          "PUT    /community/answers/:id/like          - Like an answer",
+          "PUT    /community/answers/:id/accept        - Accept answer as solution",
+          "GET    /community/stats                     - Get community statistics",
+          "GET    /community/search?q=query            - Search questions",
+        ],
+        notes: [
+          "No authentication tokens required",
+          "Supports file attachments (images, PDF, Word docs)",
+          "Maximum file size: 5MB",
+          "Auto-generates tags from question content",
+          "Full-text search across titles, content, and tags",
+          "Pagination, filtering, and sorting supported",
+          "Question views tracking",
+          "Answer voting system",
+          "Mark answers as accepted solutions",
+        ],
+        form_fields: {
+          create_question: [
+            "name: String (required)",
+            "email: String (required, validated)",
+            "title: String (required, max 200 chars)",
+            "question: String (required)",
+            "attachment: File (optional, max 5MB)",
+          ],
+          create_answer: [
+            "name: String (required)",
+            "email: String (required, validated)",
+            "content: String (required)",
+            "attachment: File (optional, max 5MB)",
+          ]
+        },
+        query_parameters: {
+          get_questions: [
+            "page: Page number (default: 1)",
+            "limit: Items per page (default: 10)",
+            "search: Search query",
+            "sort: Sort order (newest, oldest, popular, most-answered)",
+            "resolved: Filter by status (all, resolved, unresolved)",
+          ]
+        }
+      },
       announcement_system: {
         description: "Announcement Management System",
         endpoints: [
@@ -312,6 +366,13 @@ app.get("/api-docs", (req, res) => {
       },
     },
     quick_start: {
+      community_forum: [
+        "1. POST to /community/questions to create a question",
+        "2. Include form-data with name, email, title, question",
+        "3. Optionally include attachment file",
+        "4. Use GET /community/questions to retrieve all questions",
+        "5. Use query params for filtering: ?search=react&sort=newest",
+      ],
       authentication: "Use /api/v1/auth/login to get JWT token",
       testing: "Use Postman or curl with appropriate headers",
       file_uploads: "Use multipart/form-data for file uploads",
@@ -340,15 +401,34 @@ app.get("/", (req, res) => {
       lesson_management: "✅ With Video Support",
       payment_processing: "✅ Stripe Integration",
       file_uploads: "✅ Image/Video/Document Support",
-      community_forum: "✅ Q&A with Images",
+      community_forum: "✅ Q&A with File Attachments",
       quiz_system: "✅ Public Access (No Auth Required)",
       announcement_system: "✅ With Scheduling & Attachments",
+    },
+    community_forum: {
+      status: "✅ Active",
+      features: [
+        "Ask questions with attachments",
+        "Post answers with file support",
+        "Vote on answers",
+        "Mark solutions as accepted",
+        "Full-text search",
+        "Community statistics",
+        "Auto-tagging system",
+        "Related questions",
+      ],
+      endpoints: [
+        "POST /api/v1/community/questions",
+        "GET  /api/v1/community/questions",
+        "GET  /api/v1/community/stats",
+      ],
     },
     status: {
       database: "Connected",
       server: "Running",
       uploads: "Available",
       cache: "Enabled",
+      community_forum: "Ready",
     },
   });
 });
@@ -367,6 +447,69 @@ app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/community", communityRoutes);
 app.use("/api/v1/quizzes", quizRoutes);
 app.use("/api/v1/announcements", announcementRoutes);
+
+// ---------------------------
+// Community Forum Demo Endpoint
+// ---------------------------
+app.get("/demo/community", (req, res) => {
+  res.json({
+    message: "🎯 Community Forum Demo Endpoints",
+    description: "Test these endpoints in Postman to verify the community forum is working",
+    test_cases: [
+      {
+        name: "Create a Question",
+        method: "POST",
+        url: "/api/v1/community/questions",
+        body: "form-data",
+        fields: {
+          name: "John Doe",
+          email: "john@example.com",
+          title: "How to get started with Node.js?",
+          question: "I'm new to backend development. What are the best resources to learn Node.js in 2024?",
+          attachment: "(optional file upload)"
+        }
+      },
+      {
+        name: "Get All Questions",
+        method: "GET",
+        url: "/api/v1/community/questions",
+        query_params: {
+          page: "1",
+          limit: "10",
+          search: "node",
+          sort: "newest",
+          resolved: "all"
+        }
+      },
+      {
+        name: "Get Community Stats",
+        method: "GET",
+        url: "/api/v1/community/stats"
+      },
+      {
+        name: "Search Questions",
+        method: "GET",
+        url: "/api/v1/community/search?q=javascript"
+      }
+    ],
+    file_uploads: {
+      max_size: "5MB",
+      allowed_types: [
+        "images: jpg, jpeg, png, gif, webp",
+        "documents: pdf, doc, docx"
+      ],
+      upload_path: "/uploads/community/"
+    },
+    notes: [
+      "All community endpoints are public (no authentication required)",
+      "Use form-data for POST requests with files",
+      "Files are accessible at http://localhost:8080/uploads/community/{filename}",
+      "Email validation is enforced",
+      "Auto-tagging from question content",
+      "Slug URLs for SEO-friendly links"
+    ]
+  });
+});
 
 // ---------------------------
 // 404 Handler
@@ -388,7 +531,16 @@ app.use((req, res) => {
       "/api/v1/quizzes",
       "/api/v1/announcements",
     ],
+    community_forum_routes: [
+      "GET    /api/v1/community/questions",
+      "POST   /api/v1/community/questions",
+      "GET    /api/v1/community/questions/:id",
+      "POST   /api/v1/community/questions/:id/answers",
+      "GET    /api/v1/community/stats",
+      "GET    /api/v1/community/search",
+    ],
     documentation: "/api-docs",
+    demo: "/demo/community",
     suggestion: "Check the API documentation for correct endpoint usage",
   });
 });
@@ -407,7 +559,6 @@ process.on("unhandledRejection", (err) => {
 
   // In production, you might want to send an alert/notification
   if (process.env.NODE_ENV === "production") {
-    // Add your error monitoring service here (Sentry, LogRocket, etc.)
     console.error(
       "Production error occurred. Consider implementing error monitoring."
     );
@@ -494,8 +645,9 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   ║                                                                      ║
   ║   📚 API Documentation: http://${host}:${PORT}/api-docs             ║
   ║   ❤️  Health Check: http://${host}:${PORT}/health                   ║
-  ║   🎯 Quiz System: Public Access (No Auth Required)                  ║
+  ║   💬 Community Forum: Public Access (No Auth Required)              ║
   ║   📢 Announcement System: With Scheduling & Attachments             ║
+  ║   🎯 Quiz System: Public Access (No Auth Required)                  ║
   ║                                                                      ║
   ╚══════════════════════════════════════════════════════════════════════╝
   `);
@@ -510,23 +662,35 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("├── /api/v1/uploads           - File Uploads");
   console.log("├── /api/v1/admin             - Admin Functions");
   console.log("├── /api/v1/categories        - Category Management");
-  console.log("├── /api/v1/community         - Community Forum");
+  console.log("├── /api/v1/community         - Community Forum (Public)");
   console.log("├── /api/v1/quizzes           - Quiz System (Public)");
   console.log("└── /api/v1/announcements     - Announcement System");
 
+  console.log("\n💬 Community Forum Features:");
+  console.log("├── Ask questions with file attachments");
+  console.log("├── Post answers with file support");
+  console.log("├── Vote on answers");
+  console.log("├── Mark solutions as accepted");
+  console.log("├── Full-text search");
+  console.log("├── Community statistics");
+  console.log("├── Auto-tagging system");
+  console.log("└── Related questions");
+
   console.log("\n🎯 Key Features:");
   console.log("├── Quiz System: No authentication required");
+  console.log("├── Community Forum: No authentication required");
   console.log("├── Announcements: With file attachments");
   console.log("├── File Uploads: Images, videos, documents");
-  console.log("├── Community: Q&A with image support");
   console.log("├── Payments: Stripe integration");
   console.log("└── Security: JWT authentication, CORS, Helmet");
 
+  console.log("\n🔗 Community Forum Demo:");
+  console.log(`📝 Documentation: http://${host}:${PORT}/api-docs`);
+  console.log(`🎯 Demo Guide: http://${host}:${PORT}/demo/community`);
+  console.log(`❤️  Health Check: http://${host}:${PORT}/health`);
+
   console.log(
     `\n✅ Server is ready to accept requests at http://${host}:${PORT}`
-  );
-  console.log(
-    `📝 API Documentation available at http://${host}:${PORT}/api-docs`
   );
 });
 
