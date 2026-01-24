@@ -22,6 +22,9 @@ const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
 const quizRoutes = require("./routes/quizRoutes");
 const announcementRoutes = require("./routes/announcements");
+const contactRoutes = require('./routes/contactRoutes');
+const webinarRoutes = require('./routes/webinarRoutes');
+const mentorRoomRoutes = require('./routes/mentorRoomRoutes');
 
 const app = express();
 
@@ -266,6 +269,7 @@ app.get("/api-docs", (req, res) => {
       community: "/api/v1/community",
       quizzes: "/api/v1/quizzes",
       announcements: "/api/v1/announcements",
+      contact: "/api/v1/contact",
     },
     features: {
       community_forum: {
@@ -365,6 +369,33 @@ app.get("/api-docs", (req, res) => {
           "Detailed analytics available",
         ],
       },
+      contact_form: {
+        description: "Contact Form System",
+        endpoints: [
+          "POST   /contact                  - Submit contact form (public)",
+          "GET    /contact                  - Get all contacts (admin)",
+          "GET    /contact/:id              - Get single contact (admin)",
+          "PATCH  /contact/:id              - Update contact status (admin)",
+          "GET    /contact/stats            - Get contact statistics (admin)",
+        ],
+        notes: [
+          "Public submission with validation",
+          "Email notifications on submission",
+          "Status tracking for admin management",
+          "IP address and user agent tracking",
+          "Spam protection (rate limiting recommended)",
+        ],
+        form_fields: {
+          submit_contact: [
+            "firstName: String (required)",
+            "lastName: String (required)",
+            "email: String (required, validated)",
+            "phone: String (optional)",
+            "subject: String (enum: general, support, billing, feedback, partnership, other)",
+            "message: String (required, max 2000 chars)",
+          ]
+        }
+      }
     },
     quick_start: {
       community_forum: [
@@ -448,6 +479,9 @@ app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/community", communityRoutes);
 app.use("/api/v1/quizzes", quizRoutes);
 app.use("/api/v1/announcements", announcementRoutes);
+app.use("/api/v1/contact", contactRoutes);
+app.use('/api/v1/webinars', webinarRoutes);
+app.use('/api/v1/mentor-room', mentorRoomRoutes);
 
 // ---------------------------
 // Community Forum Demo Endpoint
@@ -531,6 +565,7 @@ app.use((req, res) => {
       "/api/v1/community",
       "/api/v1/quizzes",
       "/api/v1/announcements",
+      "/api/v1/mentor-room",
     ],
     community_forum_routes: [
       "GET    /api/v1/community/questions",
