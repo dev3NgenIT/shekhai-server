@@ -25,6 +25,8 @@ const announcementRoutes = require("./routes/announcements");
 const contactRoutes = require('./routes/contactRoutes');
 const webinarRoutes = require('./routes/webinarRoutes');
 const mentorRoomRoutes = require('./routes/mentorRoomRoutes');
+const homePageRoutes = require('./routes/homePageRoutes');
+
 
 const app = express();
 
@@ -482,6 +484,7 @@ app.use("/api/v1/announcements", announcementRoutes);
 app.use("/api/v1/contact", contactRoutes);
 app.use('/api/v1/webinars', webinarRoutes);
 app.use('/api/v1/mentor-room', mentorRoomRoutes);
+app.use('/api/v1/homepage', homePageRoutes);
 
 // ---------------------------
 // Community Forum Demo Endpoint
@@ -750,24 +753,4 @@ server.on("error", (error) => {
     console.error("Error code:", error.code);
   }
   process.exit(1);
-});
-
-// ---------------------------
-// Handle connection events
-// ---------------------------
-server.on("connection", (socket) => {
-  // Optional: Log connection info (can be noisy in production)
-  if (process.env.NODE_ENV === "development") {
-    console.log(
-      `New connection from ${socket.remoteAddress}:${socket.remotePort}`
-    );
-  }
-
-  // Set timeout to prevent hanging connections
-  socket.setTimeout(30000); // 30 seconds
-
-  socket.on("timeout", () => {
-    console.log(`Socket timeout from ${socket.remoteAddress}`);
-    socket.end();
-  });
 });
