@@ -43,6 +43,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://192.168.0.206:3000", // Add this line
   "https://shekhai-dashboard.vercel.app",
+  "https://shekhai-frontend.vercel.app",
   "https://shekhai-server-production.up.railway.app",
 ];
 
