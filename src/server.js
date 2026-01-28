@@ -22,11 +22,11 @@ const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
 const quizRoutes = require("./routes/quizRoutes");
 const announcementRoutes = require("./routes/announcements");
-const contactRoutes = require('./routes/contactRoutes');
-const webinarRoutes = require('./routes/webinarRoutes');
-const mentorRoomRoutes = require('./routes/mentorRoomRoutes');
-const homePageRoutes = require('./routes/homePageRoutes');
-
+const contactRoutes = require("./routes/contactRoutes");
+const webinarRoutes = require("./routes/webinarRoutes");
+const mentorRoomRoutes = require("./routes/mentorRoomRoutes");
+const homePageRoutes = require("./routes/homePageRoutes");
+const enrollmentRoutes = require("./routes/enrollmentRoutes");
 
 const app = express();
 
@@ -96,8 +96,8 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 if (process.env.NODE_ENV === "development") {
   app.use(
     morgan(
-      ':date[iso] :remote-addr ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms'
-    )
+      ':date[iso] :remote-addr ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms',
+    ),
   );
 } else {
   // Production logging - simpler format
@@ -134,7 +134,7 @@ if (process.env.NODE_ENV === "production") {
     helmet({
       ...helmetConfig,
       contentSecurityPolicy: false, // Disable CSP in development for easier testing
-    })
+    }),
   );
 }
 
@@ -157,13 +157,13 @@ app.use((req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=()"
+    "camera=(), microphone=(), geolocation=()",
   );
 
   // Cache control for API responses
   res.setHeader(
     "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
   );
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
@@ -205,7 +205,7 @@ app.use(
 
     next();
   },
-  express.static(uploadsDir)
+  express.static(uploadsDir),
 );
 
 // ---------------------------
@@ -239,7 +239,7 @@ app.get("/health", (req, res) => {
       statistics: "✅ Community stats",
       file_uploads: "✅ Images, PDF, Word docs (5MB max)",
       pagination: "✅ With filters and sorting",
-    }
+    },
   };
 
   res.status(200).json(healthcheck);
@@ -311,7 +311,7 @@ app.get("/api-docs", (req, res) => {
             "email: String (required, validated)",
             "content: String (required)",
             "attachment: File (optional, max 5MB)",
-          ]
+          ],
         },
         query_parameters: {
           get_questions: [
@@ -320,8 +320,8 @@ app.get("/api-docs", (req, res) => {
             "search: Search query",
             "sort: Sort order (newest, oldest, popular, most-answered)",
             "resolved: Filter by status (all, resolved, unresolved)",
-          ]
-        }
+          ],
+        },
       },
       announcement_system: {
         description: "Announcement Management System",
@@ -396,9 +396,9 @@ app.get("/api-docs", (req, res) => {
             "phone: String (optional)",
             "subject: String (enum: general, support, billing, feedback, partnership, other)",
             "message: String (required, max 2000 chars)",
-          ]
-        }
-      }
+          ],
+        },
+      },
     },
     quick_start: {
       community_forum: [
@@ -483,9 +483,10 @@ app.use("/api/v1/community", communityRoutes);
 app.use("/api/v1/quizzes", quizRoutes);
 app.use("/api/v1/announcements", announcementRoutes);
 app.use("/api/v1/contact", contactRoutes);
-app.use('/api/v1/webinars', webinarRoutes);
-app.use('/api/v1/mentor-room', mentorRoomRoutes);
-app.use('/api/v1/homepage', homePageRoutes);
+app.use("/api/v1/webinars", webinarRoutes);
+app.use("/api/v1/mentor-room", mentorRoomRoutes);
+app.use("/api/v1/homepage", homePageRoutes);
+app.use("/api/v1", enrollmentRoutes);
 
 // ---------------------------
 // Community Forum Demo Endpoint
@@ -493,7 +494,8 @@ app.use('/api/v1/homepage', homePageRoutes);
 app.get("/demo/community", (req, res) => {
   res.json({
     message: "🎯 Community Forum Demo Endpoints",
-    description: "Test these endpoints in Postman to verify the community forum is working",
+    description:
+      "Test these endpoints in Postman to verify the community forum is working",
     test_cases: [
       {
         name: "Create a Question",
@@ -504,9 +506,10 @@ app.get("/demo/community", (req, res) => {
           name: "John Doe",
           email: "john@example.com",
           title: "How to get started with Node.js?",
-          question: "I'm new to backend development. What are the best resources to learn Node.js in 2024?",
-          attachment: "(optional file upload)"
-        }
+          question:
+            "I'm new to backend development. What are the best resources to learn Node.js in 2024?",
+          attachment: "(optional file upload)",
+        },
       },
       {
         name: "Get All Questions",
@@ -517,27 +520,27 @@ app.get("/demo/community", (req, res) => {
           limit: "10",
           search: "node",
           sort: "newest",
-          resolved: "all"
-        }
+          resolved: "all",
+        },
       },
       {
         name: "Get Community Stats",
         method: "GET",
-        url: "/api/v1/community/stats"
+        url: "/api/v1/community/stats",
       },
       {
         name: "Search Questions",
         method: "GET",
-        url: "/api/v1/community/search?q=javascript"
-      }
+        url: "/api/v1/community/search?q=javascript",
+      },
     ],
     file_uploads: {
       max_size: "5MB",
       allowed_types: [
         "images: jpg, jpeg, png, gif, webp",
-        "documents: pdf, doc, docx"
+        "documents: pdf, doc, docx",
       ],
-      upload_path: "/uploads/community/"
+      upload_path: "/uploads/community/",
     },
     notes: [
       "All community endpoints are public (no authentication required)",
@@ -545,8 +548,8 @@ app.get("/demo/community", (req, res) => {
       "Files are accessible at http://localhost:8080/uploads/community/{filename}",
       "Email validation is enforced",
       "Auto-tagging from question content",
-      "Slug URLs for SEO-friendly links"
-    ]
+      "Slug URLs for SEO-friendly links",
+    ],
   });
 });
 
@@ -570,6 +573,7 @@ app.use((req, res) => {
       "/api/v1/quizzes",
       "/api/v1/announcements",
       "/api/v1/mentor-room",
+      "/api/v1/enrollments",
     ],
     community_forum_routes: [
       "GET    /api/v1/community/questions",
@@ -600,7 +604,7 @@ process.on("unhandledRejection", (err) => {
   // In production, you might want to send an alert/notification
   if (process.env.NODE_ENV === "production") {
     console.error(
-      "Production error occurred. Consider implementing error monitoring."
+      "Production error occurred. Consider implementing error monitoring.",
     );
   }
 });
@@ -730,7 +734,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`❤️  Health Check: http://${host}:${PORT}/health`);
 
   console.log(
-    `\n✅ Server is ready to accept requests at http://${host}:${PORT}`
+    `\n✅ Server is ready to accept requests at http://${host}:${PORT}`,
   );
 });
 
