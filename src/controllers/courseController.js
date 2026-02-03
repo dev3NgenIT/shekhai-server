@@ -4,7 +4,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// Multer configuration for course images
+// 1. Multer configuration for file uploads (for backward compatibility)
 const courseStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(process.cwd(), "uploads", "courses");
@@ -52,7 +52,7 @@ exports.uploadCourseImages = (req, res, next) => {
   });
 };
 
-// List all published courses
+// 2. List all published courses
 exports.list = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, search } = req.query;
@@ -78,7 +78,7 @@ exports.list = async (req, res, next) => {
   }
 };
 
-// Get single course by ID
+// 3. Get single course by ID
 exports.get = async (req, res, next) => {
   try {
     const course = await Course.findById(req.params.id)
@@ -100,15 +100,15 @@ exports.get = async (req, res, next) => {
   }
 };
 
-// Create course
+// 4. Create course (with Base64 support)
 exports.create = async (req, res, next) => {
   try {
     let payload = req.body;
     
-    console.log("Files received:", req.files);
-    console.log("Body received:", req.body);
+    console.log("Creating course with payload keys:", Object.keys(payload));
+    console.log("Files received:", req.files ? 'Yes' : 'No');
 
-    // Handle uploaded files
+    // If files uploaded via multer (old way)
     if (req.files) {
       const protocol = req.headers['x-forwarded-proto'] || req.protocol;
       const host = req.get("host");
@@ -127,11 +127,25 @@ exports.create = async (req, res, next) => {
       }
     }
     
+    // If Base64 images provided (new way)
+    if (payload.bannerImage && typeof payload.bannerImage === 'string') {
+      // Process Base64 image
+      const matches = payload.bannerImage.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        payload.bannerImage = {
+          data: payload.bannerImage,
+          contentType: matches[1],
+          size: Buffer.from(matches[2], 'base64').length
+        };
+      }
+    }
+
     // Parse modules if sent as JSON string
     if (typeof payload.modules === 'string') {
       try {
         payload.modules = JSON.parse(payload.modules);
       } catch (parseErr) {
+        console.error("Error parsing modules:", parseErr);
         return res.status(400).json({ 
           success: false, 
           msg: "Invalid modules format" 
@@ -167,11 +181,37 @@ exports.create = async (req, res, next) => {
       });
     }
 
-    // Calculate totals
-    payload.totalModules = payload.modules ? payload.modules.length : 0;
-    payload.totalDuration = payload.modules
-      ? payload.modules.reduce((sum, m) => sum + (Number(m.duration) || 0), 0)
-      : 0;
+    // Process modules structure
+    if (payload.modules && Array.isArray(payload.modules)) {
+      payload.modules = payload.modules.map((module, moduleIndex) => {
+        module.order = moduleIndex + 1;
+        
+        if (module.lessons && Array.isArray(module.lessons)) {
+          module.lessons = module.lessons.map((lesson, lessonIndex) => {
+            lesson.order = lessonIndex + 1;
+            
+            // Set default status
+            if (!lesson.status) {
+              lesson.status = moduleIndex === 0 && lessonIndex === 0 ? 'unlocked' : 'locked';
+            }
+            
+            return lesson;
+          });
+          
+          module.totalLessons = module.lessons.length;
+          module.totalDuration = module.lessons.reduce((sum, lesson) => 
+            sum + (Number(lesson.duration) || 0), 0);
+        }
+        
+        module.status = moduleIndex === 0 ? 'unlocked' : 'locked';
+        return module;
+      });
+      
+      // Calculate totals
+      payload.totalModules = payload.modules.length;
+      payload.totalLessons = payload.modules.reduce((sum, m) => sum + m.lessons.length, 0);
+      payload.totalDuration = payload.modules.reduce((sum, m) => sum + m.totalDuration, 0);
+    }
 
     // Ensure proper data types
     payload.price = Number(payload.price) || 0;
@@ -198,7 +238,7 @@ exports.create = async (req, res, next) => {
   }
 };
 
-// Update course
+// 5. Update course
 exports.update = async (req, res, next) => {
   try {
     const course = await Course.findById(req.params.id);
@@ -227,10 +267,6 @@ exports.update = async (req, res, next) => {
       );
     }
 
-    // Update bannerUrl and thumbnails
-    if (req.body.bannerUrl !== undefined) course.bannerUrl = req.body.bannerUrl;
-    if (req.body.thumbnails !== undefined) course.thumbnails = req.body.thumbnails;
-
     course.updatedAt = new Date();
     await course.save();
     
@@ -243,7 +279,7 @@ exports.update = async (req, res, next) => {
   }
 };
 
-// Delete course
+// 6. Delete course
 exports.remove = async (req, res, next) => {
   try {
     const course = await Course.findById(req.params.id);
@@ -264,6 +300,81 @@ exports.remove = async (req, res, next) => {
     await course.deleteOne();
     res.json({ 
       success: true 
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 7. Get course for learning (NEW)
+exports.getCourseForLearning = async (req, res, next) => {
+  try {
+    const { courseId } = req.params;
+    const userId = req.user.id;
+
+    const course = await Course.findById(courseId)
+      .populate("instructor", "name email role")
+      .populate("category", "name slug description");
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        msg: "Course not found"
+      });
+    }
+
+    // In a real app, you would check if user is enrolled
+    // For now, just return the course
+    res.json({
+      success: true,
+      course: {
+        ...course.toObject(),
+        modules: course.modules || []
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 8. Get syllabus (NEW)
+exports.getSyllabus = async (req, res, next) => {
+  try {
+    const { courseId } = req.params;
+
+    const course = await Course.findById(courseId)
+      .select('modules title')
+      .lean();
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        msg: "Course not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      syllabus: course.modules || [],
+      courseTitle: course.title
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 9. Update lesson progress (NEW)
+exports.updateLessonProgress = async (req, res, next) => {
+  try {
+    const { courseId, lessonId } = req.params;
+    const { completed } = req.body;
+
+    // For now, just acknowledge the request
+    // In a real app, you would update UserProgress model
+    res.json({
+      success: true,
+      message: "Progress updated",
+      completed
     });
   } catch (err) {
     next(err);
