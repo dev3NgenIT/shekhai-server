@@ -22,7 +22,8 @@ const lessonSchema = new mongoose.Schema({
   quizId: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Quiz',
-    required: function() { return this.type === 'quiz'; }
+    // required: function() { return this.type === 'quiz'; }
+    required: false
   },
   
   content: {
