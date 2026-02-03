@@ -27,6 +27,7 @@ const webinarRoutes = require("./routes/webinarRoutes");
 const mentorRoomRoutes = require("./routes/mentorRoomRoutes");
 const homePageRoutes = require("./routes/homePageRoutes");
 const enrollmentRoutes = require("./routes/enrollmentRoutes");
+const liveSessionRoutes = require("./routes/liveSessionRoutes");
 
 const app = express();
 
@@ -487,6 +488,7 @@ app.use("/api/v1/webinars", webinarRoutes);
 app.use("/api/v1/mentor-room", mentorRoomRoutes);
 app.use("/api/v1/homepage", homePageRoutes);
 app.use("/api/v1", enrollmentRoutes);
+app.use("/api/v1/live-sessions", liveSessionRoutes);
 
 // ---------------------------
 // Community Forum Demo Endpoint
