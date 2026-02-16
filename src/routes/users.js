@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const router = express.Router();
 const { auth, permit } = require("../middlewares/auth");
 const User = require("../models/User");
+const bcrypt = require("bcryptjs");
 
 // -----------------------------
 // GET /me - logged-in user info
@@ -19,6 +20,69 @@ router.get("/me", auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// -----------------------------
+// Public route to get instructors list (NO AUTH REQUIRED)
+// -----------------------------
+router.get("/instructors/public", async (req, res) => {
+  try {
+    const instructors = await User.find({
+      role: "instructor",
+    })
+      .select("name email avatarUrl bio createdAt")
+      .limit(8);
+
+    res.json({
+      success: true,
+      count: instructors.length,
+      instructors,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// -----------------------------
+// Public route to get single instructor by ID (NO AUTH REQUIRED)
+// -----------------------------
+router.get("/instructors/public/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid instructor ID format",
+      });
+    }
+
+    const instructor = await User.findOne({
+      _id: id,
+      role: "instructor",
+    })
+      .select("-passwordHash -refreshToken -resetPasswordToken")
+      .lean();
+
+    if (!instructor) {
+      return res.status(404).json({
+        success: false,
+        message: "Instructor not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      instructor,
+    });
+  } catch (err) {
+    console.error("Error fetching instructor:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching instructor",
+    });
   }
 });
 
@@ -41,13 +105,22 @@ router.get("/", auth, permit("admin"), async (req, res) => {
 // -----------------------------
 // PUT /me - update logged-in user profile
 // -----------------------------
-const bcrypt = require("bcryptjs");
-
 router.put("/me", auth, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, email, bio, avatarUrl, currentPassword, newPassword } =
-      req.body;
+    const {
+      name,
+      email,
+      bio,
+      avatarUrl,
+      phone,
+      location,
+      website, // ADD THIS
+      socialLinks, // ADD THIS
+      expertise,
+      currentPassword,
+      newPassword,
+    } = req.body;
 
     const user = await User.findById(userId);
 
@@ -56,11 +129,41 @@ router.put("/me", auth, async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
 
-    // Update profile fields
-    if (name) user.name = name;
-    if (email) user.email = email;
-    if (bio) user.bio = bio;
-    if (avatarUrl) user.avatarUrl = avatarUrl;
+    // Update basic profile fields
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email;
+    if (bio !== undefined) user.bio = bio;
+    if (avatarUrl !== undefined) user.avatarUrl = avatarUrl;
+
+    // Update additional profile fields
+    if (phone !== undefined) user.phone = phone;
+    if (location !== undefined) user.location = location;
+    if (website !== undefined) user.website = website; // ADD THIS
+
+    // Handle socialLinks
+    if (socialLinks) {
+      if (!user.socialLinks) user.socialLinks = {};
+      if (socialLinks.twitter !== undefined)
+        user.socialLinks.twitter = socialLinks.twitter;
+      if (socialLinks.linkedin !== undefined)
+        user.socialLinks.linkedin = socialLinks.linkedin;
+      if (socialLinks.github !== undefined)
+        user.socialLinks.github = socialLinks.github;
+      if (socialLinks.facebook !== undefined)
+        user.socialLinks.facebook = socialLinks.facebook;
+    }
+
+    // Handle expertise array
+    if (expertise !== undefined) {
+      if (typeof expertise === "string") {
+        user.expertise = expertise
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s);
+      } else if (Array.isArray(expertise)) {
+        user.expertise = expertise;
+      }
+    }
 
     // Update password if provided
     if (newPassword) {
@@ -82,8 +185,11 @@ router.put("/me", auth, async (req, res) => {
 
     await user.save();
 
+    // Return user without sensitive data
     const updatedUser = user.toObject();
     delete updatedUser.passwordHash;
+    delete updatedUser.refreshToken;
+    delete updatedUser.resetPasswordToken;
 
     res.json({
       success: true,
@@ -97,37 +203,55 @@ router.put("/me", auth, async (req, res) => {
 });
 
 // ---------------------------------------------------
-// PUT /:id - update a user (admin only)
+// PUT /:id - update a user (admin only) - UPDATED WITH ALL FIELDS
 // ---------------------------------------------------
 router.put("/:id", auth, permit("admin"), async (req, res) => {
   try {
     const userId = req.params.id;
 
-    // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid user ID" });
     }
 
-    // Prevent editing self role to non-admin accidentally
     if (userId === req.user.id && req.body.role && req.body.role !== "admin") {
       return res
         .status(400)
         .json({ success: false, message: "Cannot change your own admin role" });
     }
 
-    // Only allow certain fields to be updated
-    const allowedFields = ["name", "email", "role", "status"];
+    // Allowed fields for admin update
+    const allowedFields = [
+      "name",
+      "email",
+      "role",
+      "bio",
+      "avatarUrl",
+      "phone",
+      "location",
+      "expertise",
+      "isActive",
+      "isEmailVerified",
+    ];
+
     const updates = {};
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
+    // Handle expertise specially if it's a string
+    if (req.body.expertise && typeof req.body.expertise === "string") {
+      updates.expertise = req.body.expertise
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s);
+    }
+
     const updatedUser = await User.findByIdAndUpdate(userId, updates, {
       new: true,
       runValidators: true,
-    }).select("-passwordHash");
+    }).select("-passwordHash -refreshToken -resetPasswordToken");
 
     if (!updatedUser) {
       return res
@@ -153,14 +277,12 @@ router.delete("/:id", auth, permit("admin"), async (req, res) => {
   try {
     const userId = req.params.id;
 
-    // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid user ID" });
     }
 
-    // Prevent deleting self
     if (userId === req.user.id) {
       return res
         .status(400)
