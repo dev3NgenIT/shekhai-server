@@ -71,4 +71,4 @@ userSchema.set("toJSON", {
 // IMPORTANT: Check if model exists before creating
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-module.exports = User;
+module.exports = User;  
