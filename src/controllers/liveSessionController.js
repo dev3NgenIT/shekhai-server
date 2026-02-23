@@ -1,4 +1,6 @@
 const LiveSession = require("../models/liveSessionModel");
+const UserLiveSession = require("../models/userLiveSessionModel");
+const User = require("../models/userModel");
 const asyncHandler = require("express-async-handler");
 
 // @desc    Create a new live session
@@ -91,7 +93,15 @@ const createLiveSession = asyncHandler(async (req, res) => {
     language: language || "English",
     level: level || "All Levels",
     tags: tags || [],
-    isActive: true
+    isActive: true,
+    enrolledUsers: [],
+    waitlist: [],
+    savedBy: [],
+    paymentStats: {
+      totalRevenue: 0,
+      totalPaidEnrollments: 0,
+      totalFreeEnrollments: 0
+    }
   });
 
   res.status(201).json({
@@ -210,7 +220,9 @@ const getLiveNowSessions = asyncHandler(async (req, res) => {
 // @access  Public
 const getLiveSessionById = asyncHandler(async (req, res) => {
   const liveSession = await LiveSession.findById(req.params.id)
-    .populate("instructor", "name email avatar bio");
+    .populate("instructor", "name email avatar bio")
+    .populate("enrolledUsers.user", "name email")
+    .populate("waitlist.user", "name email");
 
   if (!liveSession || !liveSession.isActive) {
     res.status(404);
@@ -218,7 +230,7 @@ const getLiveSessionById = asyncHandler(async (req, res) => {
   }
 
   // Increment views
-  liveSession.views = (liveSession.views || 0) + 1;
+  liveSession.metadata.totalViews = (liveSession.metadata.totalViews || 0) + 1;
   await liveSession.save();
 
   res.status(200).json({
@@ -279,6 +291,12 @@ const deleteLiveSession = asyncHandler(async (req, res) => {
   // Soft delete
   liveSession.isActive = false;
   await liveSession.save();
+
+  // Also soft delete all user relationships
+  await UserLiveSession.updateMany(
+    { liveSession: req.params.id },
+    { status: "expired" }
+  );
 
   res.status(200).json({
     success: true,
@@ -460,6 +478,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     return sum + (session.totalSlots - session.availableSlots);
   }, 0);
 
+  // Get total revenue
+  const totalRevenue = sessions.reduce((sum, session) => {
+    return sum + (session.paymentStats?.totalRevenue || 0);
+  }, 0);
+
   res.status(200).json({
     success: true,
     data: {
@@ -467,7 +490,603 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       upcomingSessions,
       liveSessions,
       completedSessions,
-      totalParticipants
+      totalParticipants,
+      totalRevenue,
+      totalEnrollments: await UserLiveSession.countDocuments({ 
+        relationshipType: "enrolled",
+        status: "active"
+      })
+    }
+  });
+});
+
+// ============= USER INTERACTION FUNCTIONS =============
+
+// @desc    Save a live session (for later)
+// @route   POST /api/v1/live-sessions/:id/save
+// @access  Public (but will need user ID)
+const saveLiveSession = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+  
+  if (!userId) {
+    res.status(400);
+    throw new Error("User ID is required");
+  }
+
+  const liveSession = await LiveSession.findById(req.params.id);
+
+  if (!liveSession) {
+    res.status(404);
+    throw new Error("Live session not found");
+  }
+
+  // Check if already saved
+  const alreadySaved = await UserLiveSession.findOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "saved"
+  });
+
+  if (alreadySaved) {
+    res.status(400);
+    throw new Error("Session already saved");
+  }
+
+  // Create saved record
+  const savedSession = await UserLiveSession.create({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "saved",
+    saved: {
+      savedAt: new Date()
+    },
+    status: "active"
+  });
+
+  // Also add to session's savedBy array
+  liveSession.savedBy = liveSession.savedBy || [];
+  if (!liveSession.savedBy.includes(userId)) {
+    liveSession.savedBy.push(userId);
+    await liveSession.save();
+  }
+
+  res.status(201).json({
+    success: true,
+    message: "Session saved successfully",
+    data: savedSession
+  });
+});
+
+// @desc    Remove saved session
+// @route   DELETE /api/v1/live-sessions/:id/unsave
+// @access  Public
+const unsaveLiveSession = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("User ID is required");
+  }
+
+  const savedSession = await UserLiveSession.findOneAndDelete({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "saved"
+  });
+
+  if (!savedSession) {
+    res.status(404);
+    throw new Error("Saved session not found");
+  }
+
+  // Remove from session's savedBy array
+  await LiveSession.findByIdAndUpdate(
+    req.params.id,
+    { $pull: { savedBy: userId } }
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Session removed from saved"
+  });
+});
+
+// @desc    Enroll in a live session (with payment)
+// @route   POST /api/v1/live-sessions/:id/enroll
+// @access  Public
+const enrollInLiveSession = asyncHandler(async (req, res) => {
+  const {
+    userId,
+    paymentInfo,
+    studentInfo
+  } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("User ID is required");
+  }
+
+  const liveSession = await LiveSession.findById(req.params.id);
+
+  if (!liveSession) {
+    res.status(404);
+    throw new Error("Live session not found");
+  }
+
+  // Check availability
+  if (liveSession.availableSlots <= 0) {
+    // Add to waitlist if enabled
+    if (liveSession.waitlistEnabled) {
+      // Check if already on waitlist
+      const alreadyWaitlisted = await UserLiveSession.findOne({
+        user: userId,
+        liveSession: req.params.id,
+        relationshipType: "waitlisted"
+      });
+
+      if (alreadyWaitlisted) {
+        res.status(400);
+        throw new Error("Already on waitlist");
+      }
+
+      // Check waitlist limit
+      if (liveSession.waitlist.length >= (liveSession.maxWaitlist || 50)) {
+        res.status(400);
+        throw new Error("Waitlist is full");
+      }
+
+      const waitlistEntry = await UserLiveSession.create({
+        user: userId,
+        liveSession: req.params.id,
+        relationshipType: "waitlisted",
+        waitlist: {
+          joinedAt: new Date(),
+          position: liveSession.waitlist.length + 1
+        },
+        status: "active"
+      });
+
+      // Add to session waitlist
+      liveSession.waitlist.push({
+        user: userId,
+        joinedAt: new Date(),
+        notified: false
+      });
+      
+      liveSession.waitlistCount = liveSession.waitlist.length;
+      await liveSession.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Added to waitlist",
+        data: waitlistEntry,
+        waitlist: true
+      });
+    }
+
+    res.status(400);
+    throw new Error("No available slots");
+  }
+
+  // Check if already enrolled
+  const alreadyEnrolled = await UserLiveSession.findOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: { $in: ["enrolled", "attended"] }
+  });
+
+  if (alreadyEnrolled) {
+    res.status(400);
+    throw new Error("Already enrolled in this session");
+  }
+
+  // Check if it's a free session
+  const isFree = !liveSession.isPaid || liveSession.price === 0;
+
+  // Generate enrollment ID
+  const enrollmentId = `ENR-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+  // Create enrollment record
+  const enrollmentData = {
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "enrolled",
+    enrollment: {
+      enrolledAt: new Date(),
+      enrollmentId: enrollmentId,
+      paymentInfo: isFree ? {
+        paymentMethod: "free",
+        paymentStatus: "completed",
+        amount: 0,
+        paidAt: new Date()
+      } : {
+        paymentId: paymentInfo?.paymentId,
+        transactionId: paymentInfo?.transactionId,
+        amount: paymentInfo?.amount || liveSession.price,
+        currency: paymentInfo?.currency || liveSession.currency || "BDT",
+        paymentMethod: paymentInfo?.paymentMethod || "bkash",
+        paymentStatus: paymentInfo?.paymentStatus || "completed",
+        paidAt: paymentInfo?.paidAt || new Date()
+      }
+    },
+    status: "active"
+  };
+
+  // Add student info if provided
+  if (studentInfo) {
+    enrollmentData.studentInfo = studentInfo;
+  }
+
+  const enrollment = await UserLiveSession.create(enrollmentData);
+
+  // Update live session stats
+  liveSession.availableSlots -= 1;
+  liveSession.metadata.totalEnrollments = (liveSession.metadata.totalEnrollments || 0) + 1;
+  
+  // Update payment stats if paid
+  if (!isFree && paymentInfo?.amount) {
+    liveSession.paymentStats = liveSession.paymentStats || {
+      totalRevenue: 0,
+      totalPaidEnrollments: 0,
+      totalFreeEnrollments: 0
+    };
+    liveSession.paymentStats.totalRevenue = (liveSession.paymentStats.totalRevenue || 0) + paymentInfo.amount;
+    liveSession.paymentStats.totalPaidEnrollments = (liveSession.paymentStats.totalPaidEnrollments || 0) + 1;
+  } else if (isFree) {
+    liveSession.paymentStats = liveSession.paymentStats || {
+      totalRevenue: 0,
+      totalPaidEnrollments: 0,
+      totalFreeEnrollments: 0
+    };
+    liveSession.paymentStats.totalFreeEnrollments = (liveSession.paymentStats.totalFreeEnrollments || 0) + 1;
+  }
+
+  // Add to enrolledUsers array
+  liveSession.enrolledUsers = liveSession.enrolledUsers || [];
+  liveSession.enrolledUsers.push({
+    user: userId,
+    enrollmentDate: new Date(),
+    status: "enrolled",
+    paymentInfo: enrollmentData.enrollment.paymentInfo
+  });
+
+  await liveSession.save();
+
+  // Remove from saved if it was saved
+  await UserLiveSession.deleteOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "saved"
+  });
+
+  // Remove from waitlist if it was on waitlist
+  await UserLiveSession.deleteOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "waitlisted"
+  });
+
+  // Remove from session waitlist
+  liveSession.waitlist = liveSession.waitlist.filter(
+    w => w.user.toString() !== userId
+  );
+  liveSession.waitlistCount = liveSession.waitlist.length;
+  await liveSession.save();
+
+  res.status(201).json({
+    success: true,
+    message: isFree ? "Successfully enrolled in free session" : "Payment successful! Enrollment completed",
+    data: {
+      enrollment,
+      session: liveSession,
+      isFree,
+      enrollmentId
+    }
+  });
+});
+
+// @desc    Cancel enrollment
+// @route   POST /api/v1/live-sessions/:id/cancel-enrollment
+// @access  Public
+const cancelEnrollment = asyncHandler(async (req, res) => {
+  const { userId, reason } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("User ID is required");
+  }
+
+  const enrollment = await UserLiveSession.findOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "enrolled"
+  });
+
+  if (!enrollment) {
+    res.status(404);
+    throw new Error("Enrollment not found");
+  }
+
+  // Update enrollment status
+  enrollment.status = "cancelled";
+  await enrollment.save();
+
+  // Update live session
+  const liveSession = await LiveSession.findById(req.params.id);
+  if (liveSession) {
+    liveSession.availableSlots += 1;
+    
+    // Remove from enrolledUsers array
+    liveSession.enrolledUsers = liveSession.enrolledUsers.filter(
+      e => e.user.toString() !== userId
+    );
+    
+    await liveSession.save();
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Enrollment cancelled successfully"
+  });
+});
+
+// @desc    Get user's saved sessions
+// @route   GET /api/v1/live-sessions/user/:userId/saved
+// @access  Public
+const getUserSavedSessions = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+  const skip = (page - 1) * limit;
+
+  const savedSessions = await UserLiveSession.find({
+    user: req.params.userId,
+    relationshipType: "saved",
+    status: "active"
+  })
+    .populate({
+      path: "liveSession",
+      populate: {
+        path: "instructor",
+        select: "name email avatar"
+      }
+    })
+    .sort({ "saved.savedAt": -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
+  const total = await UserLiveSession.countDocuments({
+    user: req.params.userId,
+    relationshipType: "saved",
+    status: "active"
+  });
+
+  res.status(200).json({
+    success: true,
+    count: savedSessions.length,
+    total,
+    totalPages: Math.ceil(total / limit),
+    currentPage: parseInt(page),
+    data: savedSessions.map(item => ({
+      ...item.liveSession.toObject(),
+      savedAt: item.saved.savedAt,
+      relationshipId: item._id
+    }))
+  });
+});
+
+// @desc    Get user's enrolled sessions
+// @route   GET /api/v1/live-sessions/user/:userId/enrolled
+// @access  Public
+const getUserEnrolledSessions = asyncHandler(async (req, res) => {
+  const { status, page = 1, limit = 10 } = req.query;
+  const skip = (page - 1) * limit;
+
+  const filter = {
+    user: req.params.userId,
+    relationshipType: "enrolled"
+  };
+
+  if (status === "active") {
+    filter.status = "active";
+  } else if (status === "completed") {
+    filter.status = "completed";
+  } else if (status === "cancelled") {
+    filter.status = "cancelled";
+  }
+
+  const enrolledSessions = await UserLiveSession.find(filter)
+    .populate({
+      path: "liveSession",
+      populate: {
+        path: "instructor",
+        select: "name email avatar"
+      }
+    })
+    .sort({ "enrollment.enrolledAt": -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
+  const total = await UserLiveSession.countDocuments(filter);
+
+  res.status(200).json({
+    success: true,
+    count: enrolledSessions.length,
+    total,
+    totalPages: Math.ceil(total / limit),
+    currentPage: parseInt(page),
+    data: enrolledSessions.map(item => ({
+      ...item.liveSession.toObject(),
+      enrollmentDetails: item.enrollment,
+      attended: item.enrollment?.attended,
+      relationshipId: item._id
+    }))
+  });
+});
+
+// @desc    Check if user has saved/enrolled in a session
+// @route   GET /api/v1/live-sessions/:id/check-user-status/:userId
+// @access  Public
+const checkUserSessionStatus = asyncHandler(async (req, res) => {
+  const { id, userId } = req.params;
+
+  const [saved, enrolled, waitlisted] = await Promise.all([
+    UserLiveSession.findOne({
+      user: userId,
+      liveSession: id,
+      relationshipType: "saved",
+      status: "active"
+    }),
+    UserLiveSession.findOne({
+      user: userId,
+      liveSession: id,
+      relationshipType: "enrolled",
+      status: "active"
+    }),
+    UserLiveSession.findOne({
+      user: userId,
+      liveSession: id,
+      relationshipType: "waitlisted",
+      status: "active"
+    })
+  ]);
+
+  // Get live session for availability info
+  const liveSession = await LiveSession.findById(id).select("availableSlots totalSlots waitlistEnabled");
+
+  res.status(200).json({
+    success: true,
+    data: {
+      isSaved: !!saved,
+      savedAt: saved?.saved.savedAt,
+      isEnrolled: !!enrolled,
+      enrolledAt: enrolled?.enrollment.enrolledAt,
+      paymentStatus: enrolled?.enrollment.paymentInfo?.paymentStatus,
+      isWaitlisted: !!waitlisted,
+      waitlistPosition: waitlisted?.waitlist.position,
+      relationshipIds: {
+        saved: saved?._id,
+        enrolled: enrolled?._id,
+        waitlisted: waitlisted?._id
+      },
+      sessionInfo: {
+        availableSlots: liveSession?.availableSlots,
+        totalSlots: liveSession?.totalSlots,
+        waitlistEnabled: liveSession?.waitlistEnabled
+      }
+    }
+  });
+});
+
+// @desc    Mark attendance for a session
+// @route   POST /api/v1/live-sessions/:id/mark-attendance
+// @access  Public
+const markAttendance = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  const enrollment = await UserLiveSession.findOne({
+    user: userId,
+    liveSession: req.params.id,
+    relationshipType: "enrolled",
+    status: "active"
+  });
+
+  if (!enrollment) {
+    res.status(404);
+    throw new Error("Enrollment not found");
+  }
+
+  enrollment.enrollment.attended = true;
+  enrollment.enrollment.joinedAt = new Date();
+  enrollment.relationshipType = "attended";
+  await enrollment.save();
+
+  // Update live session attendance
+  await LiveSession.findByIdAndUpdate(
+    req.params.id,
+    { 
+      $inc: { "stats.attendanceRate": 1 },
+      $set: { "enrolledUsers.$[elem].attended": true }
+    },
+    {
+      arrayFilters: [{ "elem.user": userId }]
+    }
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Attendance marked successfully"
+  });
+});
+
+// @desc    Get user's waitlisted sessions
+// @route   GET /api/v1/live-sessions/user/:userId/waitlisted
+// @access  Public
+const getUserWaitlistedSessions = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+  const skip = (page - 1) * limit;
+
+  const waitlistedSessions = await UserLiveSession.find({
+    user: req.params.userId,
+    relationshipType: "waitlisted",
+    status: "active"
+  })
+    .populate({
+      path: "liveSession",
+      populate: {
+        path: "instructor",
+        select: "name email avatar"
+      }
+    })
+    .sort({ "waitlist.joinedAt": -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
+  const total = await UserLiveSession.countDocuments({
+    user: req.params.userId,
+    relationshipType: "waitlisted",
+    status: "active"
+  });
+
+  res.status(200).json({
+    success: true,
+    count: waitlistedSessions.length,
+    total,
+    totalPages: Math.ceil(total / limit),
+    currentPage: parseInt(page),
+    data: waitlistedSessions.map(item => ({
+      ...item.liveSession.toObject(),
+      waitlistInfo: item.waitlist,
+      relationshipId: item._id
+    }))
+  });
+});
+
+// @desc    Get all user session activities
+// @route   GET /api/v1/live-sessions/user/:userId/all-activities
+// @access  Public
+const getUserAllActivities = asyncHandler(async (req, res) => {
+  const { limit = 20 } = req.query;
+
+  const activities = await UserLiveSession.find({
+    user: req.params.userId
+  })
+    .populate("liveSession", "title schedule startTime category")
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit));
+
+  const grouped = {
+    saved: activities.filter(a => a.relationshipType === "saved"),
+    enrolled: activities.filter(a => a.relationshipType === "enrolled"),
+    waitlisted: activities.filter(a => a.relationshipType === "waitlisted"),
+    attended: activities.filter(a => a.relationshipType === "attended"),
+    cancelled: activities.filter(a => a.status === "cancelled")
+  };
+
+  res.status(200).json({
+    success: true,
+    data: {
+      activities,
+      grouped,
+      totalCount: activities.length
     }
   });
 });
@@ -484,5 +1103,16 @@ module.exports = {
   endLiveSession,
   getSessionsByInstructor,
   searchLiveSessions,
-  getDashboardStats
+  getDashboardStats,
+  // New user interaction functions
+  saveLiveSession,
+  unsaveLiveSession,
+  enrollInLiveSession,
+  cancelEnrollment,
+  getUserSavedSessions,
+  getUserEnrolledSessions,
+  getUserWaitlistedSessions,
+  getUserAllActivities,
+  checkUserSessionStatus,
+  markAttendance
 };
